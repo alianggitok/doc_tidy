@@ -10,160 +10,66 @@
 <body>
 
 <h2>理解 node.js 的事件轮询（Understanding the node.js event loop）</h2>
-<p><a href="http://blog.mixu.net/2011/02/01/understanding-the-node-js-event-loop/">http://blog.mixu.net/2011/02/01/understanding-the-node-js-event-loop/</a></p>
+<p>原文链接：<a href="http://blog.mixu.net/2011/02/01/understanding-the-node-js-event-loop/">http://blog.mixu.net/2011/02/01/understanding-the-node-js-event-loop/</a></p>
 
-<p>首先，一个基本要点是I/O的开销是很大的：</p>
+<p>首先，明确的第一个要点是 I/O 的开销是很大的：</p>
 
 <p><img src="io-cost.png" alt="the cost of I/O"></p>
 
-<p>所以在当前编程技术中最大的消耗来自等待I/O的完成。有几种方法来应对这种性能上影响（来自<a href="http://www.nightmare.com/medusa/async_sockets.html">Sam Rushing</a>）：</p>
+<p>所以在当前编程技术中最大的消耗来自等待 I/O 的完成。有几种方法来应对这种性能上影响（来自<a href="http://www.nightmare.com/medusa/async_sockets.html">Sam Rushing</a>）：</p>
 
 <ul>
 	<li><b>同步的（synchronous）</b>：你每次处理一个请求，依次运行。<br>
-		 好处是简单，<br>
-		 坏处是每个请求都会让所有其他的请求等待（阻塞）。</li>
-	<li><b>建（fork）一个新的进程</b>：对每个请求开启一个新的进程。<br>
-		 好处是容易，<br>
-		 坏处是不好衡量，数百个连接意味着数百个进程。<code>fork()</code>是Unix程序员的“榔头”，因为它很管用，而每个问题看起来就像是“钉子”。这通常有些杀鸡用牛刀，太过了。</li>
+		好处是简单；<br>
+		坏处是每个请求都会让所有其他的请求等待（阻塞）。</li>
+	<li><b>建（fork）一个新的进程（process）</b>：对每个请求开启一个新的进程。<br>
+		好处是容易；<br>
+		坏处是不好衡量，数百个连接意味着数百个进程。<code>fork()</code>是Unix程序员的“榔头”，因为它很管用，而每个问题看起来就像是“钉子”。这通常有些杀鸡用牛刀，太过了。</li>
 	 <li><b>线程（threads）</b>：开启一个新的线程来处理每一个请求。<br>
-		  好处是容易，相比fork，使用线程对（CPU）内核会更友好，因为线程通常开销较小。<br>
-		  坏处是你的机器可能没有多线程，伴随着对共享资源访问控制的顾虑，线程编程（threaded programming）会很快变得复杂起来。</li>
+		好处是容易，相比fork，使用线程对（CPU）内核会更友好，因为线程通常开销较小；<br>
+		坏处是你的机器可能不支持多线程，伴随着对共享资源访问控制的顾虑，线程编程（threaded programming）会很快变得复杂起来。</li>
 </ul>
 
+<p>第二，每个连接对应一个线程（Thread-Per-Connection）对内存的消耗是很大的（memory-expensive）：[e.g. that graph everyone showns about Apache sucking up memory compared to Nginx]</p>
 
+<p>Apache是多线程的：它使得每个请求对应一个线程（<a href="http://httpd.apache.org/docs/2.0/mod/worker.html">thread per request</a>）（或<a href="http://httpd.apache.org/docs/2.0/mod/prefork.html">进程</a>，这取决于相关配置）。你能看到伴随着并发连接数量的增涨它们是如何蚕食内存的，并且更多的线程必须适应多个虚拟客户端（serve multiple simulataneous clients）。</p>
+<p>Nginx 和 Node.js 不是多线程的，因为线程和进程会带来巨量的内存开销。它们是单线程的，但是基于事件驱动（event-based）。通过单一线程来处理大量连接，从而削减了由于成千上万的线程或进程所带来的开销。</p>
 
-
-
-
-<h3>基础插件编写</h3>
-<p>接下来，我们要创建一个插件让所选元素的文本变成绿色。为达成这一目标，我们要加一个名为<code>greenify</code>的函数到<code>$.fn</code>中，它会像其他jQuery对象方法一样有效。</p>
+<h3>Node.js 为你的代码保留一个线程……</h3>
+<p>它的确是单线程运行的：你无法做一些并行代码执行（parallel code execution）；我们来举一个 Sleep 的例子，让服务器阻塞一秒钟：</p>
 <pre class="brush: js">
-$.fn.greenify = function() {
-	this.css( "color", "green" );
-};
-
-$( "a" ).greenify(); // 让所有链接变成绿色
+while(new Date().getTime() < now + 1000) {
+	// do nothing
+}
 </pre>
-<p>注意：这里用到的<code>.css()</code>方法，我们使用<code>this</code>而不是<code>$(this)</code>。这是因为我们的<code>greenify</code>函数和<code>.css()</code>一样是相同对象的一部分。</p>
+<p>所以当这段代码运行的时候，它不会响应来自客户端的其他请求，因为 Node.js 仅有一个线程来执行代码。如果你有一些高密度处理的代码（CPU-intensive code），比如为调整图片尺寸，这同样会阻断所有的请求。</p>
 
-<h3>链式操作（chaining）</h3>
-<p>在这里，为了让我们的插件能够更好“生存”在这个“世界”里，有些事情是必须做的。当你在一个选择器上绑上五到六个动作时，可以使用jQuery的其中一个特性——链式操作。让所有jQuery对象方法返回原始jQuery对象是有技巧的（这里有例外：例如<code>.width()</code>不带参数的调用会返回所选元素的宽度值，而不支持链式操作）。要让我们的插件支持链式操作，加上一行代码就行：</p>
+<h3>……然而，除你的代码外，所有的事情都是并行运行的</h3>
+<p>我们无法让代码在一个请求里并行运行。但是，所有的 I/O 是异步的、以事件驱动的，所以下面这段代码不会阻塞服务器：</p>
 <pre class="brush: js">
-$.fn.greenify = function() {
-	this.css( "color", "green" );
-	return this;
-};
-
-$( "a" ).greenify().addClass( "greenified" );
+c.query(
+	'SELECT SLEEP(20);',
+	function (err, results, fields) {
+		if (err) {
+			throw err;
+		}
+		res.writeHead(200, {'Content-Type': 'text/html'});
+		res.end('&lt;html&gt;&lt;head&gt;&lt;title&gt;Hello&lt;/title&gt;&lt;/head&gt;&lt;body&gt;&lt;h1&gt;Return from async DB query&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;');
+		c.end();
+	}
+);
 </pre>
-<p>注意：链式操作的理念不适用于类似<code>$.trim()</code>的jQuery公77用方法。</p>
+<p>如果你在一个请求里执行这段代码，当数据库运行休眠时，其他的请求仍然会很好的处理。</p>
 
-<h3>保护别名$，添加作用域</h3>
-<p><code>$</code>变量在众多JavaScript库中使用广泛，如果你在使用jQuery的同时还使用了其他库，你可以通过<code>jQuery.noConflict()</code>让jQuery不使用<code>$</code>。但不管怎样，这将会破坏我们先以<code>$</code>作为别名来书写的jQuery函数的插件。为了让其他插件正常工作的同时任然使用jQuery的<code>$</code>别名，我们必须把所有的代码放进一个立即调用的函数表达式（<a href="http://stage.learn.jquery.com/javascript-101/functions/#immediately-invoked-function-expression-iife">Immediately Invoked Function Expression</a>）中，然后传递一个函数<code>jQuery</code>，同时赋上一个参数<code>$</code>：</p>
-<pre class="brush: js">
-(function ( $ ) {
- 
-	$.fn.greenify = function() {
-		this.css( "color", "green" );
-		return this;
-	};
- 
-	$.ltrim = function( str ) {
-		return str.replace( /^\s+/, "" );
-	};
- 
-	$.rtrim = function( str ) {
-		return str.replace( /\s+$/, "" );
-	};
- 
-}( jQuery ));
-</pre>
-<p>此外，一个立即调用的函数最主要的目的是允许我们拥有自己的私有变量。假设我们需要一个不同的（色差的）绿色，并且要求存储（这个颜色值）到一个变量中：</p>
-<pre class="brush: js">
-(function ( $ ) {
+<h3>这样有什么好处？我们什么时候可以从同步转到异步或并行处理？</h3>
+<p>拥有同步执行好，因为这样简化了代码的书写（相比多线程，有并发连接问题会导致WTFs）。</p>
+<p>在 Node.js 里，你无须担心在后端发生了什么：只需要在你做 I/O 时用回调；你得保证你的代码绝不会中断，并且操作 I/O 不会阻塞其他请求，不必承担一个请求一个线程或进程的开销（比如在Apache中的内存开销）。</p>
+<p>拥有异步 I/O 好，因为 I/O 相比代码的开销要大，相比只是干等 I/O，我们应该把其他事情做得更好。</p>
+<p><img src="bucket_3.gif" alt="bucket"></p>
+<p>事件轮询是“一个操控处理外部事件并将它们转换到回调调用中的实体”（"an entity that handles and processes external events and converts them into callback invocations"）。所以 I/O 调用的目的是使 Node.js 能从一个请求切换到另一个请求。在一个 I/O 调用中，你的代码记录下回调（callback）并返回控制到 Node.js 的运行环境中（runtime environment）。回调会在数据实际可用后调用。</p>
+<p>当然，在后端有着<a href="http://stackoverflow.com/questions/3629784/how-is-node-js-inherently-faster-when-it-still-relies-on-threads-internally">多线程和多进程的数据访问和流程执行</a>。然而，这没有明确暴露你的代码，所以</p>
 
-	var shade = "#556b2f";
 
-	$.fn.greenify = function() {
-		this.css( "color", shade );
-		return this;
-	};
-
-}( jQuery ));
-</pre>
-
-<h3>最小化插件的封装（footprint）</h3>
-<p>最佳实践是，我们书写的插件只占用<code>$.fn</code>的一个位置。这会降低你的插件被覆盖或覆盖其他插件的可能性。换句话说，像下面的这种写法并不好的：</p>
-<pre class="brush: js">
-(function( $ ) {
-
-	$.fn.openPopup = function() {
-		// Open popup code.
-	};
- 
-	$.fn.closePopup = function() {
-		// Close popup code.
-	};
-
-}( jQuery ));
-</pre>
-<p>换下面这种写法会更好，它只占用一个位置，并且用参数来控制相应的行为：</p>
-<pre class="brush: js">
-(function( $ ) {
- 
-	$.fn.popup = function( action ) {
- 
-		if ( action === "open") {
-			// Open popup code.
-		};
- 
-		if ( action === "close" ) {
-			// Close popup code.
-		};
- 
-	};
- 
-}( jQuery ));
-</pre>
-
-<h3>使用<code>.each()</code>方法</h3>
-<p>典型的jQuery对象都会包含引用一定数量的DOM元素，这就是为什么jQuery对象经常被归类为集合的原因。如果你要对特定的元素做一些操控（如获取一个data属性，计算特定位置等）那么你得使用<code>.each()</code>来遍历元素。</p>
-<pre class="brush: js">
-$.fn.myNewPlugin = function() {
-
-	return this.each(function() {
-		// Do something to each element here.
-	});
-
-};
-</pre>
-<p>注意：我们返回的结果不是<code>.each()</code>而是返回<code>this</code>。由于<code>.each()</code>已经是支持链式操作，所以会返回<code>this</code>。这是目前为止我们实践下来比较好的保持链式操作的做法。</p>
-
-<h3>接收选项（options）</h3>
-<p>当你的插件变得越来越复杂时，让它通过接收选项变得可定制是个好主意。要做到这点有个最简单的途径，尤其是如果在一个对象字面量（Object Literal）中有很多选项的情况下。让我们修改这个greenify插件使得可以接收一些选项。
-</p>
-<pre class="brush: js">
-	(function ( $ ) {
- 
-	$.fn.greenify = function( options ) {
- 
-		// This is the easiest way to have default options.
-		var settings = $.extend({
-			// These are the defaults.
-			color: "#556b2f",
-			backgroundColor: "white"
-		}, options );
- 
-		// Greenify the collection based on the settings variable.
-		return this.css({
-			color: settings.color,
-			backgroundColor: settings.backgroundColor
-		});
- 
-	};
- 
-}( jQuery ));
-</pre>
 
 
 
