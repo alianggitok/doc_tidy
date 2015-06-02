@@ -3,6 +3,8 @@
 
 *——Anna Roes* in *2015-2-7*
 
+原文链接：<https://www.timroes.de/2015/02/07/kibana-4-tutorial-part-2-discover/>
+
 这一章将讲解 discover 页面的使用。我们假定你已经完成了上一章节的相关步骤。
 
 *Discover* 主显示区以表格的形式将文档中，你所指定索引的所有数据呈现出来（在你使用 Kibana 4 vagrant machine 时没有看到任何东西？接下去看）。
