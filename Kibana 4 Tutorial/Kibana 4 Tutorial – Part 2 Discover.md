@@ -1,9 +1,8 @@
-#Kibana 4 Tutorial – Part 2: Discover
 #Kibana 4 指南 —— 第二章：Discover
 
 *——Anna Roes* in *2015-2-7*
 
-原文链接：<https://www.timroes.de/2015/02/07/kibana-4-tutorial-part-2-discover/>
+原文链接：[Kibana 4 Tutorial – Part 2: Discover](https://www.timroes.de/2015/02/07/kibana-4-tutorial-part-2-discover/)
 
 这一章将讲解 discover 页面的使用。我们假定你已经完成了上一章节的相关步骤。
 

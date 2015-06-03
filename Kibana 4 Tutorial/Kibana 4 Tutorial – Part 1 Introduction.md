@@ -1,9 +1,8 @@
-#Kibana 4 Tutorial – Part 1: Introduction
 #Kibana 4 指南 —— 第一章：介绍
 
 *——Anna Roes* in *2015-2-7*
 
-原文链接：<https://www.timroes.de/2015/02/07/kibana-4-tutorial-part-1-introduction/>
+原文链接：[Kibana 4 Tutorial – Part 1: Introduction](https://www.timroes.de/2015/02/07/kibana-4-tutorial-part-1-introduction/)
 
 这份指南是针对的 Kibana 4.0.1 的。
 
