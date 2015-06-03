@@ -14,5 +14,9 @@
 我们数据的聚合并不是靠 Kibana 完成，而是放在 elasticsearch下进行的。我们可以区分出两种聚合：bucket 和 metric。为从 Kibana 4 获得一个可控的图表，理解这些聚合如何工作的会是个要点，所以不要对接下来的段落感到气馁。
 
 ###Bucket aggregations
-由所有文档都被一个 bucket aggregation 放到数个 bucket 中，每个都包含一个已被索引的文档的子集。
+所有文档都被一个 bucket aggregation 放到数个 bucket 中，每个都包含一个已被索引的文档的子集。bucket 可以根据一个特定的字段的值、一个自定义过滤或者其他参数挑选出一个特定的文档。当前，Kibana 4 支持 7个 bucket aggregation，这会在接下来的段落里做说明。为说明每一个聚合，twitter 数据样本已经为每个聚合给出了对应的案例。稍后在这个指南里我们将看到一些完整的案例。
+
+####Date Histogram（直方图）
+直方图聚合要求一个日期类型字段和一个时间间隔。
+
 
